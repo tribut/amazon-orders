@@ -6,15 +6,16 @@ import os
 
 from selenium import webdriver
 from selenium.webdriver.firefox import firefox_binary
+from selenium.common.exceptions import NoSuchElementException
 
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 DEFAULT_LOGLEVEL = logging.WARNING
-logging.basicConfig(level=DEFAULT_LOGLEVEL, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
 _AMAZON_DE_LOGIN_URL = r"https://www.amazon.de/ap/signin?_encoding=UTF8&openid.assoc_handle=deflex&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.mode=checkid_setup&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.ns.pape=http%3A%2F%2Fspecs.openid.net%2Fextensions%2Fpape%2F1.0&openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.de%2Fref%3Dnav_signin"
+_AMAZON_DE_ORDER_HISTORY = r"https://www.amazon.de/gp/css/order-history"
 
 
 # selenium doesn't seem to work with Firefox 48.
@@ -54,6 +55,66 @@ def login(email, password):
     logger.info("Login successful.")
 
 
+def extract_orders_from_current_page():
+    """Extracts the orders from the page the selenium WebDriver is currently on.
+
+    Loops through the elements found on the current order page and collects their data:
+    - order number
+    - the date the order was created on
+    - the total amount
+    - the link to amazon's details page
+
+    Returns:
+        [dict] -- a list containing the found orders
+    """
+    orders = []
+
+    order_elements = driver.find_elements_by_class_name("order")
+    for order in order_elements:
+        order_number = None
+        order_date = None
+        order_total = None
+        order_details_link = None
+
+        # the whole top part of an order, with its date, sum, and order number
+        order_info = order.find_element_by_css_selector(".order-info")
+
+        order_info_left = order_info.find_element_by_class_name("a-col-left")
+        order_info_right = order_info.find_element_by_class_name("a-col-right")
+
+        # the left part's parts
+        info_cols = order_info_left.find_elements_by_class_name("a-column")
+        for col in info_cols:
+            try:
+                description = col.find_element_by_class_name("a-size-mini").text
+                value = col.find_element_by_class_name("a-size-base").text
+            except NoSuchElementException:
+                pass  # occurs for digital orders for the "recipient column"
+
+            if description.lower() == "summe":
+                order_total = value
+
+            elif description.lower() == "bestellung aufgegeben":
+                order_date = value
+
+
+        order_number = order_info_right.find_element_by_css_selector(".a-size-mini").text
+        order_details_link = order_info_right.find_element_by_css_selector(".a-size-base a.a-link-normal").get_attribute("href")
+
+        order = {
+            "order_number": order_number,
+            "order_date": order_date,
+            "order_total": order_total,
+            "order_details_link": order_details_link
+        }
+        logger.info("Found order: {}".format(order))
+
+        orders.append(order)
+
+    return orders
+
+
+
 def download_orders(email, password):
     """Starts downloading the orders.
 
@@ -65,6 +126,30 @@ def download_orders(email, password):
         password (string) -- The amazon.de account's password
     """
     login(email, password)
+
+    driver.get(_AMAZON_DE_ORDER_HISTORY)
+
+    orders = []
+    more_years = True
+    year_ids = [element.get_attribute("id") for element in driver.find_elements_by_css_selector("[id^=orderFilterEntry-year-]")]
+    for year_id in year_ids:
+        logger.info("Extracting {}...".format(year_id))
+        year_button = driver.find_element_by_id(year_id)
+        year_button.click()
+
+        more_pages = True
+        while more_pages:
+            orders.extend(extract_orders_from_current_page())
+
+            try:
+                next_page_button = driver.find_element_by_css_selector(".a-last a")
+                next_page_button.click()
+            except NoSuchElementException as nsee:
+                more_pages = False
+
+    driver.close()
+    logger.info("Extracted {} orders.".format(len(orders)))
+    return orders
 
 
 if __name__ == '__main__':
