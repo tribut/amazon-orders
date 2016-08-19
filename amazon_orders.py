@@ -8,6 +8,8 @@ from selenium import webdriver
 from selenium.webdriver.firefox import firefox_binary
 from selenium.common.exceptions import NoSuchElementException
 
+import json
+
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 DEFAULT_LOGLEVEL = logging.WARNING
@@ -31,11 +33,7 @@ else:
         "http://download.cdn.mozilla.net/pub/firefox/releases/47.0.1/",
         _FIREFOX_DIR))
 
-try:
-    driver = webdriver.Firefox(firefox_binary=ff_binary)
-except RuntimeError as re:
-    logger.critical(re)
-    raise re
+driver = None
 
 
 def login(email, password):
@@ -92,7 +90,7 @@ def extract_orders_from_current_page():
                 pass  # occurs for digital orders for the "recipient column"
 
             if description.lower() == "summe":
-                order_total = value
+                order_total = float(value.replace("EUR ", "").replace(",", "."))
 
             elif description.lower() == "bestellung aufgegeben":
                 order_date = value
@@ -125,6 +123,13 @@ def download_orders(email, password):
         email (string) -- The amazon.de account's email
         password (string) -- The amazon.de account's password
     """
+    global driver
+    try:
+        driver = webdriver.Firefox(firefox_binary=ff_binary)
+    except RuntimeError as re:
+        logger.critical(re)
+        raise re
+
     login(email, password)
 
     driver.get(_AMAZON_DE_ORDER_HISTORY)
@@ -152,11 +157,52 @@ def download_orders(email, password):
     return orders
 
 
+def generate_json(orders, filepath=None):
+    orders_json = json.dumps(orders, indent=4)
+
+    if filepath is not None:
+        logger.info("Saving exported orders to {}".format(filepath))
+        with open(filepath, "w+") as f:
+            f.write(orders_json)
+
+    return orders_json
+
+
+def generate_csv(orders, filepath=None):
+    delimiter = "|"
+
+    csv = []
+    for order in orders:
+        columns = [
+            order["order_date"],
+            str(order["order_total"]),
+            order["order_number"],
+            order["order_details_link"]
+        ]
+        line = delimiter.join(columns)
+        csv.append(line)
+
+    if filepath is not None:
+        logger.info("Saving exported orders to {}".format(filepath))
+        with open(filepath, "w+") as f:
+            f.write("\n".join(csv))
+
+    return csv
+
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description="Export your orders from amazon.de.")
     argparser.add_argument("-v", "--verbose",
                                action="count",
                                help="Increase the loglevel. More vs = more output.")
+    argparser.add_argument("-j", "--json",
+                           action="store",
+                           metavar="FILE",
+                           help="Save the orders as json to the specified file.")
+    argparser.add_argument("-c", "--csv",
+                           action="store",
+                           metavar="FILE",
+                           help="Save the orders as csv to the specified file.")
     args = argparser.parse_args()
 
     # see https://docs.python.org/2/library/logging.html#logging-levels
@@ -167,3 +213,9 @@ if __name__ == '__main__':
     email = input("email: ")
     password = getpass("password: ")
     orders = download_orders(email, password)
+
+    if args.json:
+        generate_json(orders, args.json)
+
+    if args.csv:
+        generate_csv(orders, args.csv)
