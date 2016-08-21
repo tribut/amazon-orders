@@ -14,8 +14,8 @@ DEFAULT_LOGLEVEL = logging.WARNING
 logger = logging.getLogger(__name__)
 
 
-_AMAZON_DE_LOGIN_FORM_ACTION = r"https://www.amazon.de/ap/signin"
-_AMAZON_DE_ORDER_HISTORY = r"https://www.amazon.de/gp/css/order-history"
+_AMAZON_DE_LOGIN_FORM_ACTION = "https://www.amazon.de/ap/signin"
+_AMAZON_DE_ORDER_HISTORY = "https://www.amazon.de/gp/your-account/order-history"
 
 
 _INCLUDE_FREE = False
@@ -46,29 +46,33 @@ def hidden_form_fields(form_descriptor, soup, by_attribute="name"):
 
 
 def login(email, password):
-    main_html = session.get(r"https://www.amazon.de").content
-    main_soup = BeautifulSoup(main_html, "html.parser")
+    main_html = session.get("https://www.amazon.de")
 
-    login_page_url = main_soup.select("div#nav-flyout-ya-signin a")[0]["href"]
     logger.info("Logging in...")
 
-    login_data = {
-        "email": email,
-        "password": password,
-    }
-
-    html = session.get(login_page_url).content
+    html = session.get(_AMAZON_DE_ORDER_HISTORY).content  # redirects to the signin page
     soup = BeautifulSoup(html, "html.parser")
 
     login_data = hidden_form_fields("signIn", soup)
-    session.post(_AMAZON_DE_LOGIN_FORM_ACTION, data=login_data)
+    login_data["email"] = email
+    login_data["password"] = password
 
-    h = str(session.get(r"https://amazon.de").content)
-    assert "Ein Problem ist aufgetreten" not in h and "Hallo! Anmelden" not in h
+    for k, v in login_data.items():
+        logger.debug("Login data: {} = {}".format(k, v))
+
+    r = session.post(_AMAZON_DE_LOGIN_FORM_ACTION, data=login_data)
+    h = r.content
+    s = BeautifulSoup(h, "html.parser")
+
+    alerts = [a.string.strip() for a in s.select(".a-alert-container li") if a.string is not None]
+    for alert in alerts:
+        logger.error("from Amazon: {}".format(alert))
+
+    assert not alerts and "Ein Problem ist aufgetreten" not in s.string
     logger.info("Login successful.")
 
 
-def extract_orders_from_current_page():
+def extract_orders_from_page(soup):
     """Extracts the orders from the page the selenium WebDriver is currently on.
 
     Loops through the elements found on the current order page and collects their data:
@@ -77,12 +81,15 @@ def extract_orders_from_current_page():
     - the total amount
     - the link to amazon's details page
 
+    Arguments:
+        soup (BeautifulSoup) -- The BeautifulSoup instance for the website's html.
+
     Returns:
         [dict] -- a list containing the found orders
     """
     orders = []
 
-    order_elements = driver.find_elements_by_class_name("order")
+    order_elements = soup.select(".order")
     for order_element in order_elements:
         order_number = None
         order_date = None
@@ -90,18 +97,18 @@ def extract_orders_from_current_page():
         order_details_link = None
 
         # the whole top part of an order, with its date, sum, and order number
-        order_info = order_element.find_element_by_css_selector(".order-info")
+        order_info = [order_element.select(".order-info")][0]
 
-        order_info_left = order_info.find_element_by_class_name("a-col-left")
-        order_info_right = order_info.find_element_by_class_name("a-col-right")
+        order_info_left = [order_info.select(".a-col-left")][0]
+        order_info_right = [order_info.select(".a-col-right")][0]
 
         # the left part's parts
-        info_cols = order_info_left.find_elements_by_class_name("a-column")
+        info_cols = order_info_left.select(".a-column")
         for col in info_cols:
             try:
-                description = col.find_element_by_class_name("a-size-mini").text
-                value = col.find_element_by_class_name("a-size-base").text
-            except NoSuchElementException:
+                description = [col.select(".a-size-mini")][0].string
+                value = [col.select(".a-size-base")][0].string
+            except IndexError:
                 pass  # occurs for digital orders for the "recipient column"
 
             if description.lower() == "summe":
@@ -111,8 +118,10 @@ def extract_orders_from_current_page():
                 order_date = value
 
 
-        order_number = order_info_right.find_element_by_css_selector(".a-size-mini").text
-        order_details_link = order_info_right.find_element_by_css_selector(".a-size-base a.a-link-normal").get_attribute("href")
+        order_number = [order_info_right.select(".a-size-mini")][0].string
+        order_details_link = [
+            order_info_right.select(".a-size-base a.a-link-normal").get_attribute("href")
+        ][0]
 
         order = {
             "order_number": order_number,
@@ -123,10 +132,10 @@ def extract_orders_from_current_page():
         logger.info("Found order: {}".format(order))
 
         try:
-            if "Erstattet" in order_element.find_element_by_class_name("shipment").text:
+            if "Erstattet" in [order_element.select(".shipment")][0].string:
                 logger.warning("Order {} was returned and refunded. Ignoring.".format(order_number))
                 continue
-        except NoSuchElementException:
+        except IndexError:
             pass  # digital orders
 
         if not _INCLUDE_FREE and order_total == 0.0:
@@ -149,39 +158,39 @@ def download_orders(email, password, include_free=False):
         email (string) -- The amazon.de account's email
         password (string) -- The amazon.de account's password
     """
-    global driver
     global _INCLUDE_FREE
     _INCLUDE_FREE = include_free
 
     try:
-        driver = webdriver.Firefox(firefox_binary=ff_binary)
-    except RuntimeError as re:
-        logger.critical(re)
-        raise re
+        login(email, password)
+    except AssertionError:
+        logger.critical("Login failed!")
+        return None
 
-    login(email, password)
+    orders_main_html = session.get(_AMAZON_DE_ORDER_HISTORY).content
+    orders_main_soup = BeautifulSoup(orders_main_html, "html.parser")
 
-    driver.get(_AMAZON_DE_ORDER_HISTORY)
+    year_selection_form_data = hidden_form_fields("timePeriodForm", orders_main_soup, by_attribute="id")
+    years = [o["value"] for o in orders_main_soup.select("select#orderFilter option") if "year" in o["value"]]
 
     orders = []
-    more_years = True
-    year_ids = [element.get_attribute("id") for element in driver.find_elements_by_css_selector("[id^=orderFilterEntry-year-]")]
-    for year_id in year_ids:
-        logger.info("Extracting {}...".format(year_id))
-        year_button = driver.find_element_by_id(year_id)
-        year_button.click()
+    for year in years:
+        logger.info("Extracting {}...".format(year))
 
-        more_pages = True
-        while more_pages:
-            orders.extend(extract_orders_from_current_page())
+        year_selection_form_data["orderFilter"] = year
+        orders_page_html = session.get(_AMAZON_DE_ORDER_HISTORY, data=year_selection_form_data)
+        orders_page_soup = BeautifulSoup(orders_page_html, "html.parser")
 
-            try:
-                next_page_button = driver.find_element_by_css_selector(".a-last a")
-                next_page_button.click()
-            except NoSuchElementException as nsee:
-                more_pages = False
+        ignore_classes = ["a-disabled", "a-selected", "a-last"]
+        pagination_urls = [li for li in orders_page_html.select("ul.a-pagination li") if li["class"] not in ignore_classes]
 
-    driver.close()
+        orders.extend(extract_orders_from_page(orders_page_soup))
+        for pagination_url in pagination_urls:
+            html = session.get(pagination_url)
+            soup = BeautifulSoup(html, "html.parser")
+
+            orders.extend(extract_orders_from_page(soup))
+
     logger.info("Extracted {} orders.".format(len(orders)))
     return orders
 
@@ -222,8 +231,8 @@ def generate_csv(orders, filepath=None):
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description="Export your orders from amazon.de.")
     argparser.add_argument("-v", "--verbose",
-                               action="count",
-                               help="Increase the loglevel. More vs = more output.")
+                           action="count",
+                           help="Increase the loglevel. More vs = more output.")
     argparser.add_argument("-j", "--json",
                            action="store",
                            metavar="FILE",
@@ -237,7 +246,7 @@ if __name__ == '__main__':
                            help="Include free orders.")
     args = argparser.parse_args()
 
-    # see https://docs.python.org/2/library/logging.html#logging-levels
+    # see https://docs.python.org/3/library/logging.html#logging-levels
     log_level = DEFAULT_LOGLEVEL - args.verbose * 10 if args.verbose else DEFAULT_LOGLEVEL
     logging.basicConfig(level=log_level, format=LOG_FORMAT)
 
