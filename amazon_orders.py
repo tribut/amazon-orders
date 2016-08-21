@@ -3,12 +3,10 @@ import argparse
 import logging.config
 from getpass import getpass
 import os
-
-from selenium import webdriver
-from selenium.webdriver.firefox import firefox_binary
-from selenium.common.exceptions import NoSuchElementException
-
 import json
+
+import requests
+from bs4 import BeautifulSoup
 
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -16,43 +14,57 @@ DEFAULT_LOGLEVEL = logging.WARNING
 logger = logging.getLogger(__name__)
 
 
-_AMAZON_DE_LOGIN_URL = r"https://www.amazon.de/ap/signin?_encoding=UTF8&openid.assoc_handle=deflex&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.mode=checkid_setup&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.ns.pape=http%3A%2F%2Fspecs.openid.net%2Fextensions%2Fpape%2F1.0&openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.de%2Fref%3Dnav_signin"
+_AMAZON_DE_LOGIN_FORM_ACTION = r"https://www.amazon.de/ap/signin"
 _AMAZON_DE_ORDER_HISTORY = r"https://www.amazon.de/gp/css/order-history"
 
 
 _INCLUDE_FREE = False
 
 
-# selenium doesn't seem to work with Firefox 48.
-# it works with FF 47
-_FIREFOX_DIR = os.path.join(os.path.expanduser("~"), "firefox_47")
-_FIREFOX_PATH = os.path.join(_FIREFOX_DIR, "firefox")
-ff_binary = None
-if os.path.exists(_FIREFOX_PATH) and os.path.isfile(_FIREFOX_PATH):
-    ff_binary = firefox_binary.FirefoxBinary(firefox_path=_FIREFOX_PATH)
+session = requests.Session()
+session.headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
-else:
-    logger.error("Can't find Firefox 47! Please download it from {} and extract it to '{}'. Trying with your installed Firefox version...".format(
-        "http://download.cdn.mozilla.net/pub/firefox/releases/47.0.1/",
-        _FIREFOX_DIR))
 
-driver = None
+def hidden_form_fields(form_descriptor, soup, by_attribute="name"):
+    form = [f for f in soup.find_all("form") if f.has_attr(by_attribute) and f[by_attribute] == form_descriptor][0]
+
+    if not form:
+        logger.critical("Form with {}: '{}' not found!".format(by_attribute, form_descriptor))
+        return None
+
+    data = {}
+    hidden_form_fields = [f for f in form.find_all("input") if f["type"] == "hidden"]
+    for hidden_field in hidden_form_fields:
+        name = hidden_field["name"]
+        value = hidden_field["value"]
+
+        data[name] = value
+
+    return data
 
 
 def login(email, password):
+    main_html = session.get(r"https://www.amazon.de").content
+    main_soup = BeautifulSoup(main_html, "html.parser")
+
+    login_page_url = main_soup.select("div#nav-flyout-ya-signin a")[0]["href"]
     logger.info("Logging in...")
-    driver.get(_AMAZON_DE_LOGIN_URL)
 
-    email_input = driver.find_element_by_id("ap_email")
-    email_input.send_keys(email)
+    login_data = {
+        "email": email,
+        "password": password,
+    }
 
-    password_input = driver.find_element_by_id("ap_password")
-    password_input.send_keys(password)
+    html = session.get(login_page_url).content
+    soup = BeautifulSoup(html, "html.parser")
 
-    login_button = driver.find_element_by_id("signInSubmit")
-    login_button.click()
+    login_data = hidden_form_fields("signIn", soup)
+    session.post(_AMAZON_DE_LOGIN_FORM_ACTION, data=login_data)
 
-    assert "Ein Problem ist aufgetreten" not in driver.page_source
+    h = str(session.get(r"https://amazon.de").content)
+    assert "Ein Problem ist aufgetreten" not in h and "Hallo! Anmelden" not in h
     logger.info("Login successful.")
 
 
