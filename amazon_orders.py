@@ -20,6 +20,9 @@ _AMAZON_DE_LOGIN_URL = r"https://www.amazon.de/ap/signin?_encoding=UTF8&openid.a
 _AMAZON_DE_ORDER_HISTORY = r"https://www.amazon.de/gp/css/order-history"
 
 
+_INCLUDE_FREE = False
+
+
 # selenium doesn't seem to work with Firefox 48.
 # it works with FF 47
 _FIREFOX_DIR = os.path.join(os.path.expanduser("~"), "firefox_47")
@@ -68,14 +71,14 @@ def extract_orders_from_current_page():
     orders = []
 
     order_elements = driver.find_elements_by_class_name("order")
-    for order in order_elements:
+    for order_element in order_elements:
         order_number = None
         order_date = None
         order_total = None
         order_details_link = None
 
         # the whole top part of an order, with its date, sum, and order number
-        order_info = order.find_element_by_css_selector(".order-info")
+        order_info = order_element.find_element_by_css_selector(".order-info")
 
         order_info_left = order_info.find_element_by_class_name("a-col-left")
         order_info_right = order_info.find_element_by_class_name("a-col-right")
@@ -107,13 +110,24 @@ def extract_orders_from_current_page():
         }
         logger.info("Found order: {}".format(order))
 
+        try:
+            if "Erstattet" in order_element.find_element_by_class_name("shipment").text:
+                logger.warning("Order {} was returned and refunded. Ignoring.".format(order_number))
+                continue
+        except NoSuchElementException:
+            pass  # digital orders
+
+        if not _INCLUDE_FREE and order_total == 0.0:
+            logger.warning("Order {} was free. Ignoring.".format(order_number))
+            continue
+
         orders.append(order)
 
     return orders
 
 
 
-def download_orders(email, password):
+def download_orders(email, password, include_free=False):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -124,6 +138,9 @@ def download_orders(email, password):
         password (string) -- The amazon.de account's password
     """
     global driver
+    global _INCLUDE_FREE
+    _INCLUDE_FREE = include_free
+
     try:
         driver = webdriver.Firefox(firefox_binary=ff_binary)
     except RuntimeError as re:
@@ -203,6 +220,9 @@ if __name__ == '__main__':
                            action="store",
                            metavar="FILE",
                            help="Save the orders as csv to the specified file.")
+    argparser.add_argument("--include_free",
+                           action="store_true",
+                           help="Include free orders.")
     args = argparser.parse_args()
 
     # see https://docs.python.org/2/library/logging.html#logging-levels
@@ -212,7 +232,7 @@ if __name__ == '__main__':
     print("Please enter your amazon.de login data...")
     email = input("email: ")
     password = getpass("password: ")
-    orders = download_orders(email, password)
+    orders = download_orders(email, password, include_free=args.include_free)
 
     if args.json:
         generate_json(orders, args.json)
