@@ -9,7 +9,7 @@ import dryscrape
 
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-DEFAULT_LOGLEVEL = logging.WARNING
+DEFAULT_LOGLEVEL = logging.INFO
 logger = logging.getLogger(__name__)
 
 _AMAZON_DE_ORDER_HISTORY = "https://www.amazon.de/gp/your-account/order-history"
@@ -96,7 +96,7 @@ def extract_orders_from_page():
             "order_total": order_total,
             "order_details_link": order_details_link
         }
-        logger.info("Found order: {}".format(order))
+        logger.debug("Found order: {}".format(order))
 
         try:
             if "Erstattet" in order_element.at_css(".shipment").text():
