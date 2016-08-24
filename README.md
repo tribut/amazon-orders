@@ -11,12 +11,3 @@ This is only tested on amazon.de, since amazon.com offers an [integrated CSV exp
 ## Install
 1. Create a pyvenv: `pyvenv venv`
 1. Install the requirements: `venv/bin/pip install -r requirements.txt`
-1. Download Firefox 47 (see below)
-
-
-## Firefox Version
-This uses [selenium](http://selenium-python.readthedocs.io/) and requires Firefox 47,
-since it doesn't seem to work anymore with Firefox 48.
-
-Download Firefox 47 from http://download.cdn.mozilla.net/pub/firefox/releases/47.0.1/ and extract it to a directory called "firefox_47" your home directory.  
-`~/firefox_47/firefox` is used as the firefox binary as a workaround for this.
