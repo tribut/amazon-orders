@@ -6,7 +6,6 @@ import os
 import json
 
 import dryscrape
-from bs4 import BeautifulSoup
 
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -31,7 +30,6 @@ def login(email, password):
 
     session.visit(_AMAZON_DE_ORDER_HISTORY)  # redirects to the signin page
     html = session.body()
-    soup = BeautifulSoup(html, "html.parser")
 
     email_field = session.at_css("#ap_email")
     password_field = session.at_css("#ap_password")
@@ -41,19 +39,16 @@ def login(email, password):
 
     session.at_css("#signInSubmit").click()  # email_field.form().submit() redirects to login with captcha. :(
 
-    h = session.body()
-    s = BeautifulSoup(h, "html.parser")
-
-    alerts = [a.string.strip() for a in s.select(".a-alert-container li") if a.string is not None]
+    alerts = session.css(".a-alert-container li")
     for alert in alerts:
-        logger.error("from Amazon: {}".format(alert))
+        logger.error("from Amazon: {}".format(alert.text()))
 
-    assert not alerts and "Ein Problem ist aufgetreten" not in s
+    assert not alerts and "Ein Problem ist aufgetreten" not in session.body()
     logger.info("Login successful.")
 
 
 def extract_orders_from_page():
-    """Extracts the orders from the page the selenium WebDriver is currently on.
+    """Extracts the orders from the page the dryscrape driver is currently on.
 
     Loops through the elements found on the current order page and collects their data:
     - order number
@@ -153,17 +148,14 @@ def download_orders(email, password, include_free=False):
         session.at_css("#timePeriodForm").submit()
 
         orders_page_html = session.body()
-        orders_page_soup = BeautifulSoup(orders_page_html, "html.parser")
 
         pagination_urls = [li.at_css("a").get_attr("href") for li in session.css("ul.a-pagination li") if li.get_attr("class") == "a-normal"]
 
-        orders.extend(extract_orders_from_page(orders_page_soup))
+        orders.extend(extract_orders_from_page())
         for pagination_url in pagination_urls:
             session.visit("https://www.amazon.de{}".format(pagination_url))
-            html = session.body()
-            soup = BeautifulSoup(html, "html.parser")
 
-            orders.extend(extract_orders_from_page(soup))
+            orders.extend(extract_orders_from_page())
 
     logger.info("Extracted {} orders.".format(len(orders)))
     return orders
