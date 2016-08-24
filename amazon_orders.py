@@ -12,12 +12,9 @@ LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 DEFAULT_LOGLEVEL = logging.WARNING
 logger = logging.getLogger(__name__)
 
-
 _AMAZON_DE_ORDER_HISTORY = "https://www.amazon.de/gp/your-account/order-history"
 
-
 _INCLUDE_FREE = False
-
 
 session = dryscrape.Session()
 session.headers = {
@@ -57,7 +54,7 @@ def extract_orders_from_page():
     - the link to amazon's details page
 
     Returns:
-        [dict] -- a list containing the found orders
+        list -- a list containing orders found on the current page
     """
     orders = []
 
@@ -127,6 +124,12 @@ def download_orders(email, password, include_free=False):
     Arguments:
         email (string) -- The amazon.de account's email
         password (string) -- The amazon.de account's password
+
+    Keyword Arguments:
+        include_free {bool} -- Flag whether or not include free orders like free kindle books or apps (default: {False})
+
+    Returns:
+        list -- List of orders found for the account or None, when the login fails
     """
     global _INCLUDE_FREE
     _INCLUDE_FREE = include_free
