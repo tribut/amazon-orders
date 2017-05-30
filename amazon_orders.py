@@ -22,7 +22,7 @@ session.headers = {
 }
 
 
-def login(email, password):
+def login(email, password, otp):
     logger.info("Logging in...")
 
     session.visit(_AMAZON_DE_ORDER_HISTORY)  # redirects to the signin page
@@ -41,6 +41,19 @@ def login(email, password):
         logger.error("from Amazon: {}".format(alert.text()))
 
     assert not alerts and "Ein Problem ist aufgetreten" not in session.body()
+
+    otp_field = session.at_css("#auth-mfa-otpcode")
+    if otp_field is not None:
+        logger.info("Two-factor authentication detected, sending OTP...")
+        otp_field.set(otp)
+        session.at_css("#auth-signin-button").click()
+
+    alerts = session.css(".a-alert-container li")
+    for alert in alerts:
+        logger.error("from Amazon: {}".format(alert.text()))
+
+    assert not alerts and "Ein Problem ist aufgetreten" not in session.body()
+
     logger.info("Login successful.")
 
 
@@ -115,7 +128,7 @@ def extract_orders_from_page():
 
 
 
-def download_orders(email, password, include_free=False):
+def download_orders(email, password, otp, include_free=False):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -135,7 +148,7 @@ def download_orders(email, password, include_free=False):
     _INCLUDE_FREE = include_free
 
     try:
-        login(email, password)
+        login(email, password, otp)
     except AssertionError:
         logger.critical("Login failed!")
         return None
@@ -222,7 +235,8 @@ if __name__ == '__main__':
     print("Please enter your amazon.de login data...")
     email = input("email: ")
     password = getpass("password: ")
-    orders = download_orders(email, password, include_free=args.include_free)
+    otp = getpass("two-factor code (if applicable): ")
+    orders = download_orders(email, password, otp, include_free=args.include_free)
 
     if args.json:
         generate_json(orders, args.json)
