@@ -22,7 +22,14 @@ session.headers = {
 }
 
 
-def login(email, password, otp):
+def login(email, password, otp=None):
+    """Login to your amazon.de account.
+
+    Args:
+        email: Your email address
+        password: Your password
+        otp: Your 2FA code (default: {None})
+    """
     logger.info("Logging in...")
 
     session.visit(_AMAZON_DE_ORDER_HISTORY)  # redirects to the signin page
@@ -144,7 +151,7 @@ def extract_orders_from_page():
 
 
 
-def download_orders(email, password, otp, include_free=False, single_year=None):
+def download_orders(email, password, otp=None, include_free=False, single_year=None):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -155,7 +162,9 @@ def download_orders(email, password, otp, include_free=False, single_year=None):
         password (string) -- The amazon.de account's password
 
     Keyword Arguments:
+        otp {str} -- 2 Factor Authentication code (default: {None})
         include_free {bool} -- Flag whether or not include free orders like free kindle books or apps (default: {False})
+        single_year {str} -- A year you want to export (default: {None} - exports from all years)
 
     Returns:
         list -- List of orders found for the account or None, when the login fails
@@ -264,7 +273,7 @@ if __name__ == '__main__':
     email = input("email: ")
     password = getpass("password: ")
     otp = getpass("two-factor code (if applicable): ")
-    orders = download_orders(email, password, otp, include_free=args.include_free, single_year=args.single_year)
+    orders = download_orders(email, password, otp=otp, include_free=args.include_free, single_year=args.single_year)
 
     if args.json:
         generate_json(orders, args.json)
