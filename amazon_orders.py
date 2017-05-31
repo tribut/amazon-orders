@@ -64,6 +64,7 @@ def extract_orders_from_page():
     - order number
     - the date the order was created on
     - the total amount
+    - name of the items ordered
     - the link to amazon's details page
 
     Returns:
@@ -103,11 +104,26 @@ def extract_orders_from_page():
         order_number = order_info_right.at_css(".a-size-mini").text()
         order_details_link = order_info_right.at_css(".a-size-base a.a-link-normal").get_attr("href")
 
+        # the bottom part of the order with the list of items
+        order_content = order_element.at_css(".order-info + .a-box")
+        order_descriptions = []
+        for item in order_content.css(".a-row .a-col-right"):
+            item_description = item.at_css(".a-row > .a-link-normal")
+            item_price = item.at_css(".a-row > .a-color-price")
+            if item_description:
+                if item_price:
+                    item_text = "{} ({})".format(
+                        item_description.text(), item_price.text())
+                else:
+                    item_text = item_description.text()
+                order_descriptions.append(item_text)
+
         order = {
             "order_number": order_number,
             "order_date": order_date,
             "order_total": order_total,
-            "order_details_link": order_details_link
+            "order_details_link": order_details_link,
+            "order_description": order_descriptions
         }
         logger.debug("Found order: {}".format(order))
 
@@ -193,6 +209,7 @@ def generate_json(orders, filepath=None):
 
 def generate_csv(orders, filepath=None):
     delimiter = "|"
+    quote = '"'
 
     csv = []
     for order in orders:
@@ -200,7 +217,11 @@ def generate_csv(orders, filepath=None):
             order["order_date"],
             str(order["order_total"]),
             order["order_number"],
-            order["order_details_link"]
+            order["order_details_link"],
+            quote +
+                ', '.join(order["order_description"]).
+                replace(quote, quote+quote) +
+                quote
         ]
         line = delimiter.join(columns)
         csv.append(line)
