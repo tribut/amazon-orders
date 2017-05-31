@@ -128,7 +128,7 @@ def extract_orders_from_page():
 
 
 
-def download_orders(email, password, otp, include_free=False):
+def download_orders(email, password, otp, include_free=False, single_year=None):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -159,6 +159,9 @@ def download_orders(email, password, otp, include_free=False):
 
     orders = []
     for year in years:
+        if single_year is not None and year != 'year-'+single_year:
+            logger.debug("Skipping year {} (only looking for {})...".format(year, single_year))
+            continue
         logger.info("Extracting {}...".format(year.replace("-", " ")))
         session.at_css("#orderFilter").set(year)
         session.at_css("#timePeriodForm").submit()
@@ -226,6 +229,10 @@ if __name__ == '__main__':
     argparser.add_argument("--include_free",
                            action="store_true",
                            help="Include free orders.")
+    argparser.add_argument("--single_year",
+                          action="store",
+                          metavar="YEAR",
+                          help="Only export the specified year.")
     args = argparser.parse_args()
 
     # see https://docs.python.org/3/library/logging.html#logging-levels
@@ -236,7 +243,7 @@ if __name__ == '__main__':
     email = input("email: ")
     password = getpass("password: ")
     otp = getpass("two-factor code (if applicable): ")
-    orders = download_orders(email, password, otp, include_free=args.include_free)
+    orders = download_orders(email, password, otp, include_free=args.include_free, single_year=args.single_year)
 
     if args.json:
         generate_json(orders, args.json)
