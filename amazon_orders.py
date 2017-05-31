@@ -22,7 +22,7 @@ session.headers = {
 }
 
 
-def login(email, password):
+def login(email, password, otp):
     logger.info("Logging in...")
 
     session.visit(_AMAZON_DE_ORDER_HISTORY)  # redirects to the signin page
@@ -41,6 +41,19 @@ def login(email, password):
         logger.error("from Amazon: {}".format(alert.text()))
 
     assert not alerts and "Ein Problem ist aufgetreten" not in session.body()
+
+    otp_field = session.at_css("#auth-mfa-otpcode")
+    if otp_field is not None:
+        logger.info("Two-factor authentication detected, sending OTP...")
+        otp_field.set(otp)
+        session.at_css("#auth-signin-button").click()
+
+    alerts = session.css(".a-alert-container li")
+    for alert in alerts:
+        logger.error("from Amazon: {}".format(alert.text()))
+
+    assert not alerts and "Ein Problem ist aufgetreten" not in session.body()
+
     logger.info("Login successful.")
 
 
@@ -51,6 +64,7 @@ def extract_orders_from_page():
     - order number
     - the date the order was created on
     - the total amount
+    - name of the items ordered
     - the link to amazon's details page
 
     Returns:
@@ -90,11 +104,26 @@ def extract_orders_from_page():
         order_number = order_info_right.at_css(".a-size-mini").text()
         order_details_link = order_info_right.at_css(".a-size-base a.a-link-normal").get_attr("href")
 
+        # the bottom part of the order with the list of items
+        order_content = order_element.at_css(".order-info + .a-box")
+        order_descriptions = []
+        for item in order_content.css(".a-row .a-col-right"):
+            item_description = item.at_css(".a-row > .a-link-normal")
+            item_price = item.at_css(".a-row > .a-color-price")
+            if item_description:
+                if item_price:
+                    item_text = "{} ({})".format(
+                        item_description.text(), item_price.text())
+                else:
+                    item_text = item_description.text()
+                order_descriptions.append(item_text)
+
         order = {
             "order_number": order_number,
             "order_date": order_date,
             "order_total": order_total,
-            "order_details_link": order_details_link
+            "order_details_link": order_details_link,
+            "order_description": order_descriptions
         }
         logger.debug("Found order: {}".format(order))
 
@@ -115,7 +144,7 @@ def extract_orders_from_page():
 
 
 
-def download_orders(email, password, include_free=False):
+def download_orders(email, password, otp, include_free=False, single_year=None):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -135,7 +164,7 @@ def download_orders(email, password, include_free=False):
     _INCLUDE_FREE = include_free
 
     try:
-        login(email, password)
+        login(email, password, otp)
     except AssertionError:
         logger.critical("Login failed!")
         return None
@@ -146,6 +175,9 @@ def download_orders(email, password, include_free=False):
 
     orders = []
     for year in years:
+        if single_year is not None and year != 'year-'+single_year:
+            logger.debug("Skipping year {} (only looking for {})...".format(year, single_year))
+            continue
         logger.info("Extracting {}...".format(year.replace("-", " ")))
         session.at_css("#orderFilter").set(year)
         session.at_css("#timePeriodForm").submit()
@@ -177,6 +209,7 @@ def generate_json(orders, filepath=None):
 
 def generate_csv(orders, filepath=None):
     delimiter = "|"
+    quote = '"'
 
     csv = []
     for order in orders:
@@ -184,7 +217,11 @@ def generate_csv(orders, filepath=None):
             order["order_date"],
             str(order["order_total"]),
             order["order_number"],
-            order["order_details_link"]
+            order["order_details_link"],
+            quote +
+                ', '.join(order["order_description"]).
+                replace(quote, quote+quote) +
+                quote
         ]
         line = delimiter.join(columns)
         csv.append(line)
@@ -213,6 +250,10 @@ if __name__ == '__main__':
     argparser.add_argument("--include_free",
                            action="store_true",
                            help="Include free orders.")
+    argparser.add_argument("--single_year",
+                          action="store",
+                          metavar="YEAR",
+                          help="Only export the specified year.")
     args = argparser.parse_args()
 
     # see https://docs.python.org/3/library/logging.html#logging-levels
@@ -222,7 +263,8 @@ if __name__ == '__main__':
     print("Please enter your amazon.de login data...")
     email = input("email: ")
     password = getpass("password: ")
-    orders = download_orders(email, password, include_free=args.include_free)
+    otp = getpass("two-factor code (if applicable): ")
+    orders = download_orders(email, password, otp, include_free=args.include_free, single_year=args.single_year)
 
     if args.json:
         generate_json(orders, args.json)
