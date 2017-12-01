@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _AMAZON_DE_ORDER_HISTORY = "https://www.amazon.de/gp/your-account/order-history"
 
 _INCLUDE_FREE = False
+_INCLUDE_REFUNDED = False
 
 session = dryscrape.Session()
 session.headers = {
@@ -135,7 +136,7 @@ def extract_orders_from_page():
         logger.debug("Found order: {}".format(order))
 
         try:
-            if "Erstattet" in order_element.at_css(".shipment").text():
+            if not _INCLUDE_REFUNDED and "Erstattet" in order_element.at_css(".shipment").text():
                 logger.warning("Order {} was returned and refunded. Ignoring.".format(order_number))
                 continue
         except AttributeError:
@@ -151,7 +152,7 @@ def extract_orders_from_page():
 
 
 
-def download_orders(email, password, otp=None, include_free=False, single_year=None):
+def download_orders(email, password, otp=None, include_free=False, include_refunded=False, single_year=None):
     """Starts downloading the orders.
 
     Uses the given email and password to login,
@@ -164,13 +165,16 @@ def download_orders(email, password, otp=None, include_free=False, single_year=N
     Keyword Arguments:
         otp {str} -- 2 Factor Authentication code (default: {None})
         include_free {bool} -- Flag whether or not include free orders like free kindle books or apps (default: {False})
+        include_refunded {bool} -- Flag whether or not include refunded orders (default: {False})
         single_year {str} -- A year you want to export (default: {None} - exports from all years)
 
     Returns:
         list -- List of orders found for the account or None, when the login fails
     """
     global _INCLUDE_FREE
+    global _INCLUDE_REFUNDED
     _INCLUDE_FREE = include_free
+    _INCLUDE_REFUNDED = include_refunded
 
     try:
         login(email, password, otp)
@@ -259,6 +263,9 @@ if __name__ == '__main__':
     argparser.add_argument("--include_free",
                            action="store_true",
                            help="Include free orders.")
+    argparser.add_argument("--include_refunded",
+                           action="store_true",
+                           help="Include refunded orders.")
     argparser.add_argument("--single_year",
                           action="store",
                           metavar="YEAR",
@@ -273,7 +280,7 @@ if __name__ == '__main__':
     email = input("email: ")
     password = getpass("password: ")
     otp = getpass("two-factor code (if applicable): ")
-    orders = download_orders(email, password, otp=otp, include_free=args.include_free, single_year=args.single_year)
+    orders = download_orders(email, password, otp=otp, include_free=args.include_free, include_refunded=args.include_refunded, single_year=args.single_year)
 
     if args.json:
         generate_json(orders, args.json)

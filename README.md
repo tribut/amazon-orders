@@ -9,7 +9,8 @@ This is only tested on amazon.de, since amazon.com offers an [integrated CSV exp
 
 By default this script ignores free orders and orders that were returned and refunded.
 Free orders may be included by calling the script with the `--include_free` option,
-or passing `include_free=True` to `download_orders`.
+or passing `include_free=True` to `download_orders`. The same can be achieved for
+refunded orders using `--include_refunded` or `include_refunded=True`.
 
 You can also extract a single year by specifying the `--single_year` option or passing `single_year=YEAR` to `download_orders`. (thanks to @tribut)
 
@@ -29,7 +30,7 @@ When using this from another project, you can also pass your authentication code
 ### Terminal
 ```shell
 usage: amazon_orders.py [-h] [-v] [-j FILE] [-c FILE] [--include_free]
-                        [--single_year YEAR]
+                        [--include_refunded] [--single_year YEAR]
 
 Export your orders from amazon.de.
 
@@ -39,6 +40,7 @@ optional arguments:
   -j FILE, --json FILE  Save the orders as json to the specified file.
   -c FILE, --csv FILE   Save the orders as csv to the specified file.
   --include_free        Include free orders.
+  --include_refunded    Include refunded orders.
   --single_year YEAR    Only export the specified year.
 ```
 
