@@ -40,6 +40,11 @@ def login(email, password, otp=None):
     password_field = session.at_css("#ap_password")
 
     email_field.set(email)
+
+    if not password_field:
+        session.at_css("#continue").click()
+        password_field = session.at_css("#ap_password")
+
     password_field.set(password)
 
     session.at_css("#signInSubmit").click()  # email_field.form().submit() redirects to login with captcha. :(
