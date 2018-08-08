@@ -118,7 +118,7 @@ def extract_orders_from_page():
         order_details_link = order_info_right.at_css(".a-size-base a.a-link-normal").get_attr("href")
 
         # the bottom part of the order with the list of items
-        order_content = order_element.at_css(".order-info + .a-box")
+        order_content = order_element.at_css(".order-info ~ .a-box:not(.order-attributes)")
         order_descriptions = []
         for item in order_content.css(".a-row .a-col-right"):
             item_description = item.at_css(".a-row > .a-link-normal")
